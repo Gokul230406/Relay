@@ -152,9 +152,10 @@ public class SubmissionService {
         recordHistory(userId, today, updatedStatuses, PlatformEnum.LEETCODE, GuardStatusEnum.SUCCESS, 
                 "Relay Multi-Platform Submit", String.join(" | ", submissionDetails));
 
-        String message = submittedPlatforms.isEmpty()
-                ? "All platforms already have valid submissions today!"
-                : "Successfully checked & submitted to platforms: " + String.join(", ", submittedPlatforms);
+        String message = String.join(" | ", submissionDetails);
+        if (message.isBlank()) {
+            message = "All enabled platforms already have valid submissions recorded today!";
+        }
 
         return SubmissionExecutionResponse.builder()
                 .executed(true)

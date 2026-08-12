@@ -73,20 +73,18 @@ public class GeeksForGeeksAdapter implements CodingPlatformAdapter {
             if (apiResp.statusCode() == 200 && apiResp.body() != null) {
                 String body = apiResp.body();
 
-                Matcher solvedMatcher = Pattern.compile("\"total_problems_solved\":\\s*(\\d+)").matcher(body);
+                Matcher solvedMatcher = Pattern.compile("total_problems_solved\\\\?\"?\\s*:\\s*(\\d+)").matcher(body);
                 if (solvedMatcher.find()) totalSolved = Integer.parseInt(solvedMatcher.group(1));
 
-                Matcher streakMatcher = Pattern.compile("\"current_streak\":\\s*(\\d+)").matcher(body);
+                Matcher streakMatcher = Pattern.compile("current_streak\\\\?\"?\\s*:\\s*(\\d+)").matcher(body);
                 if (streakMatcher.find()) currentStreak = Integer.parseInt(streakMatcher.group(1));
 
-                // Check heatmap or daily status
-                if (body.contains("\"submitted\":true") || body.contains("\"status\":\"ACCEPTED\"") || currentStreak > 0) {
-                    // Check if current streak indicates activity today
+                if (body.contains("\"submitted\":true") || body.contains("\"status\":\"ACCEPTED\"")) {
                     submitted = true;
                 }
             }
 
-            // Fallback to scraping public profile HTML if API is protected
+            // Fallback to HTML pattern matching if direct API check didn't extract totalSolved
             if (totalSolved == 0) {
                 HttpRequest htmlReq = HttpRequest.newBuilder()
                         .uri(URI.create("https://www.geeksforgeeks.org/profile/" + targetUsername))
@@ -97,8 +95,13 @@ public class GeeksForGeeksAdapter implements CodingPlatformAdapter {
 
                 if (htmlResp.statusCode() == 200 && htmlResp.body() != null) {
                     String html = htmlResp.body();
-                    Matcher htmlSolved = Pattern.compile("(?:Problems Solved|total_problems_solved)[^0-9]*(\\d+)").matcher(html);
+                    Matcher htmlSolved = Pattern.compile("total_problems_solved\\\\?\"?\\s*:\\s*(\\d+)").matcher(html);
                     if (htmlSolved.find()) totalSolved = Integer.parseInt(htmlSolved.group(1));
+
+                    if (totalSolved == 0) {
+                        Matcher altSolved = Pattern.compile("(?:Problems Solved|total_problems_solved)[^0-9]*(\\d+)").matcher(html);
+                        if (altSolved.find()) totalSolved = Integer.parseInt(altSolved.group(1));
+                    }
 
                     Matcher htmlStreak = Pattern.compile("(?:Streak|POD Streak)[^0-9]*(\\d+)").matcher(html);
                     if (htmlStreak.find()) currentStreak = Integer.parseInt(htmlStreak.group(1));

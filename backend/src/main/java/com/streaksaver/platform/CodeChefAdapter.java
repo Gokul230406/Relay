@@ -71,11 +71,15 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
             if (resp.statusCode() == 200 && resp.body() != null) {
                 String body = resp.body();
 
-                Matcher m = Pattern.compile("Fully Solved\\s*\\((\\d+)\\)").matcher(body);
+                Matcher m = Pattern.compile("(?:Total Problems Solved|Fully Solved|Problems Solved)[^0-9]*(\\d+)").matcher(body);
                 if (m.find()) totalSolved = Integer.parseInt(m.group(1));
 
                 Matcher streakM = Pattern.compile("(?:Current Streak|streak)[^0-9]*(\\d+)").matcher(body);
                 if (streakM.find()) streakCount = Integer.parseInt(streakM.group(1));
+
+                if (totalSolved > 0) {
+                    message = "Verified CodeChef profile for " + targetUsername + " | Total Solved: " + totalSolved;
+                }
             }
 
             // Check recent submissions endpoint for activity today
