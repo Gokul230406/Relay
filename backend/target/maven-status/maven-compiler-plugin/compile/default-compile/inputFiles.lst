@@ -1,4 +1,5 @@
 C:\Full Stack\Projects\Streaksaver\backend\src\main\java\com\streaksaver\auth\AuthService.java
+C:\Full Stack\Projects\Streaksaver\backend\src\main\java\com\streaksaver\config\GlobalExceptionHandler.java
 C:\Full Stack\Projects\Streaksaver\backend\src\main\java\com\streaksaver\config\JwtAuthFilter.java
 C:\Full Stack\Projects\Streaksaver\backend\src\main\java\com\streaksaver\config\JwtUtils.java
 C:\Full Stack\Projects\Streaksaver\backend\src\main\java\com\streaksaver\config\MongoConfig.java

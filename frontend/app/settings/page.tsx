@@ -30,6 +30,12 @@ export default function SettingsPage() {
     GEEKSFORGEEKS: '',
   });
 
+  const [cookies, setCookies] = useState<Record<PlatformEnum, string>>({
+    LEETCODE: '',
+    CODECHEF: '',
+    GEEKSFORGEEKS: '',
+  });
+
   useEffect(() => {
     async function loadData() {
       try {
@@ -46,10 +52,18 @@ export default function SettingsPage() {
           CODECHEF: '',
           GEEKSFORGEEKS: '',
         };
+        const cMap: Record<PlatformEnum, string> = {
+          LEETCODE: '',
+          CODECHEF: '',
+          GEEKSFORGEEKS: '',
+        };
+
         connData.forEach((c) => {
           hMap[c.platform] = c.platformUsername;
+          cMap[c.platform] = c.encryptedAuthToken || '';
         });
         setHandles(hMap);
+        setCookies(cMap);
       } catch (err: any) {
         setError(err.message || 'Failed to load settings');
       } finally {
@@ -68,7 +82,7 @@ export default function SettingsPage() {
     try {
       await api.updateSettings(settings);
       
-      // Save platform connections
+      // Save platform connections & cookies
       for (const p of ['LEETCODE', 'CODECHEF', 'GEEKSFORGEEKS'] as PlatformEnum[]) {
         if (handles[p]) {
           await api.connectPlatform(p, handles[p]);
@@ -95,7 +109,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-3xl font-extrabold text-white tracking-tight">Relay Configuration & Settings</h1>
         <p className="text-slate-400 text-sm mt-1">
-          Configure platform priority, emergency submission schedule, timezone, and platform handles.
+          Configure platform priority, emergency submission schedule, timezone, and platform handles / session tokens.
         </p>
       </div>
 
@@ -162,25 +176,54 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Platform Connections Handles */}
+      {/* Platform Connections Handles & Session Cookies */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-md space-y-6">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <span>🔗</span> Platform User Handles
-        </h2>
+        <div>
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span>🔗</span> Platform User Handles & Live Session Authentication
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Provide your platform handle for public monitoring. To submit directly to official platform servers and turn your profile heatmap green, paste your session cookie.
+          </p>
+        </div>
 
-        <div className="space-y-4">
+        <div className="space-y-6">
           {(['LEETCODE', 'CODECHEF', 'GEEKSFORGEEKS'] as PlatformEnum[]).map((plat) => (
-            <div key={plat} className="grid grid-cols-1 sm:grid-cols-3 items-center gap-4 p-4 rounded-xl bg-slate-950/60 border border-slate-800">
-              <span className="font-semibold text-sm text-slate-200">
-                {plat === 'LEETCODE' ? 'LeetCode Handle' : plat === 'CODECHEF' ? 'CodeChef Handle' : 'GeeksforGeeks Handle'}
-              </span>
-              <input
-                type="text"
-                value={handles[plat]}
-                onChange={(e) => setHandles({ ...handles, [plat]: e.target.value })}
-                placeholder={`Enter your ${plat} username`}
-                className="sm:col-span-2 rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white font-mono focus:border-orange-500 focus:outline-none"
-              />
+            <div key={plat} className="p-5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-sm text-slate-200">
+                  {plat === 'LEETCODE' ? '💻 LeetCode' : plat === 'CODECHEF' ? '👨‍🍳 CodeChef' : '🚀 GeeksforGeeks'}
+                </span>
+                <span className="text-xs text-slate-400 font-mono">
+                  Handle: {handles[plat] || 'Not Set'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Public Handle / Username</label>
+                  <input
+                    type="text"
+                    value={handles[plat]}
+                    onChange={(e) => setHandles({ ...handles, [plat]: e.target.value })}
+                    placeholder={`Enter your ${plat} handle`}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white font-mono focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                    Session Cookie / Auth Token <span className="text-slate-500 font-normal">(For Live Platform Submission)</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={cookies[plat]}
+                    onChange={(e) => setCookies({ ...cookies, [plat]: e.target.value })}
+                    placeholder={`Paste ${plat} session cookie (e.g. LEETCODE_SESSION=...)`}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white font-mono focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+              </div>
             </div>
           ))}
         </div>

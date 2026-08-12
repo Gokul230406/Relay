@@ -51,6 +51,7 @@ com\streaksaver\model\SchedulerConfiguration.class
 com\streaksaver\model\PlatformEnum.class
 com\streaksaver\config\MongoIndexFixer.class
 com\streaksaver\model\ProblemPool$Builder.class
+com\streaksaver\config\GlobalExceptionHandler.class
 com\streaksaver\platform\CodeChefAdapter.class
 com\streaksaver\dto\ProblemPoolDTO$Builder.class
 com\streaksaver\repository\PlatformConfigurationRepository.class
