@@ -213,13 +213,13 @@ export default function SettingsPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
-                    Session Cookie / Auth Token <span className="text-slate-500 font-normal">(For Live Platform Submission)</span>
+                    Account Password <span className="text-slate-500 font-normal">(For Automated Login & Submission)</span>
                   </label>
                   <input
                     type="password"
                     value={cookies[plat]}
                     onChange={(e) => setCookies({ ...cookies, [plat]: e.target.value })}
-                    placeholder={`Paste ${plat} session cookie (e.g. LEETCODE_SESSION=...)`}
+                    placeholder={`Enter your ${plat} account password`}
                     className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white font-mono focus:border-orange-500 focus:outline-none"
                   />
                 </div>

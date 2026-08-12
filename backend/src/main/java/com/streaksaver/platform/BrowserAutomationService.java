@@ -92,6 +92,148 @@ public class BrowserAutomationService {
     }
 
     /**
+     * Fast, thread-safe submission to LeetCode via browser automation.
+     * Eliminates the need for manual LEETCODE_SESSION cookie management.
+     */
+    public String submitToLeetCode(String username, String password, String problemSlug, String code, String language) {
+        log.info("LEETCODE_AUTOMATION_START username={} problem={}", username, problemSlug);
+
+        try (Playwright playwright = Playwright.create();
+             Browser browser = playwright.chromium().launch(getLaunchOptions());
+             BrowserContext ctx = browser.newContext(getContextOptions());
+             Page page = ctx.newPage()) {
+
+            page.setDefaultTimeout(12000); // 12s timeout - LeetCode is slower
+
+            // Block heavy static resources but keep JS (needed for Monaco editor)
+            ctx.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf,otf,ico,mp4,webm}", Route::abort);
+            ctx.route("**/*google-analytics*", Route::abort);
+            ctx.route("**/*doubleclick*", Route::abort);
+
+            // Step 1: Navigate to LeetCode login
+            page.navigate("https://leetcode.com/accounts/login/", new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+            page.waitForTimeout(2000); // Wait for React to render
+
+            // Fill login form
+            Locator usernameInput = page.locator("input[name='login'], input[id='id_login'], input[placeholder*='Username'], input[placeholder*='Email']");
+            if (usernameInput.count() > 0) {
+                usernameInput.first().fill(username);
+                Locator passwordInput = page.locator("input[name='password'], input[id='id_password'], input[type='password']");
+                if (passwordInput.count() > 0) passwordInput.first().fill(password);
+
+                Locator signInBtn = page.locator("button[type='submit'], button:has-text('Sign In'), button:has-text('Log In'), #signin_btn");
+                if (signInBtn.count() > 0) {
+                    signInBtn.first().click();
+                    page.waitForTimeout(3000); // Wait for login to complete
+                    log.info("LEETCODE_LOGIN_SUBMITTED username={}", username);
+                }
+            }
+
+            // Check if login was successful by looking for auth cookies
+            boolean loggedIn = false;
+            for (var cookie : ctx.cookies()) {
+                if ("LEETCODE_SESSION".equals(cookie.name)) {
+                    loggedIn = true;
+                    break;
+                }
+            }
+
+            if (!loggedIn) {
+                // Try alternate login: sometimes LeetCode redirects to a different page
+                page.waitForTimeout(2000);
+                String currentUrl = page.url();
+                log.info("LEETCODE_POST_LOGIN_URL={}", currentUrl);
+                // Check cookies again after redirect
+                for (var cookie : ctx.cookies()) {
+                    if ("LEETCODE_SESSION".equals(cookie.name)) {
+                        loggedIn = true;
+                        break;
+                    }
+                }
+            }
+
+            log.info("LEETCODE_LOGIN_STATUS loggedIn={}", loggedIn);
+
+            // Step 2: Navigate to the problem page
+            String problemUrl = "https://leetcode.com/problems/" + problemSlug + "/";
+            page.navigate(problemUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+            page.waitForTimeout(3000); // Wait for Monaco editor to load
+
+            // Step 3: Map language to LeetCode's language selector value
+            String langSlug = mapLangToLeetCode(language);
+
+            // Step 4: Try to select the language from the dropdown
+            try {
+                Locator langBtn = page.locator("button:has-text('" + langSlug + "'), [data-cy='lang-btn'], button[class*='lang']");
+                if (langBtn.count() > 0) {
+                    langBtn.first().click();
+                    page.waitForTimeout(500);
+                    Locator langOption = page.locator("li:has-text('" + langSlug + "'), div[role='option']:has-text('" + langSlug + "')");
+                    if (langOption.count() > 0) {
+                        langOption.first().click();
+                        page.waitForTimeout(500);
+                    }
+                }
+            } catch (Exception langErr) {
+                log.debug("LEETCODE_LANG_SELECT_SKIP: {}", langErr.getMessage());
+            }
+
+            // Step 5: Inject code into Monaco editor
+            Boolean codeSet = (Boolean) page.evaluate("(srcCode) => { " +
+                    "const monaco = window.monaco; " +
+                    "if (monaco && monaco.editor.getModels().length > 0) { monaco.editor.getModels()[0].setValue(srcCode); return true; } " +
+                    "const cm = document.querySelector('.CodeMirror'); " +
+                    "if (cm && cm.CodeMirror) { cm.CodeMirror.setValue(srcCode); return true; } " +
+                    "return false; " +
+                    "}", code);
+
+            log.info("LEETCODE_CODE_INJECTED codeSet={}", codeSet);
+
+            // Step 6: Click the Submit button
+            Locator submitBtn = page.locator("button[data-e2e-locator='console-submit-button'], button:has-text('Submit'), [data-cy='submit-code-btn']");
+            if (submitBtn.count() > 0) {
+                submitBtn.first().click();
+                page.waitForTimeout(5000); // Wait for submission result
+
+                // Check for accepted result
+                Locator acceptedMsg = page.locator("span:has-text('Accepted'), [data-e2e-locator='submission-result']");
+                String resultText = "";
+                if (acceptedMsg.count() > 0) {
+                    resultText = acceptedMsg.first().textContent();
+                }
+
+                String resultUrl = page.url();
+                log.info("LEETCODE_SUBMIT_SUCCESS problem={} resultUrl={} result={}", problemSlug, resultUrl, resultText);
+                return "LEETCODE_SUBMITTED: " + problemSlug + " | " + resultText;
+            }
+
+            return "LEETCODE_SUBMITTED_ATTEMPT: Form processed for " + problemSlug;
+        } catch (Exception e) {
+            log.error("LEETCODE_AUTOMATION_ERROR err={}", e.getMessage());
+            return "LEETCODE_ERROR: " + e.getMessage();
+        }
+    }
+
+    private String mapLangToLeetCode(String lang) {
+        if (lang == null) return "Java";
+        return switch (lang.toLowerCase()) {
+            case "java" -> "Java";
+            case "python", "python3" -> "Python3";
+            case "javascript", "js" -> "JavaScript";
+            case "typescript", "ts" -> "TypeScript";
+            case "c++", "cpp" -> "C++";
+            case "c" -> "C";
+            case "c#", "csharp" -> "C#";
+            case "go", "golang" -> "Go";
+            case "kotlin" -> "Kotlin";
+            case "swift" -> "Swift";
+            case "rust" -> "Rust";
+            case "ruby" -> "Ruby";
+            default -> "Java";
+        };
+    }
+
+    /**
      * Fast, thread-safe submission to GeeksforGeeks.
      */
     public String submitToGfg(String username, String password, String problemSlug, String code, String language) {

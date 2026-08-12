@@ -124,9 +124,9 @@ public class SubmissionService {
             })
         ).toList();
 
-        // Wait max 12 seconds total for all platforms to complete
+        // Wait max 30 seconds total for all platforms to complete (Playwright submissions need more time)
         try {
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(12, TimeUnit.SECONDS);
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(30, TimeUnit.SECONDS);
         } catch (Exception e) {
             log.warn("MULTI_PLATFORM_SUBMISSION_TIMEOUT err={}", e.getMessage());
         }

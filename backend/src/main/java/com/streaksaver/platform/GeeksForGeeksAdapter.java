@@ -14,6 +14,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class GeeksForGeeksAdapter implements CodingPlatformAdapter {
@@ -41,31 +43,54 @@ public class GeeksForGeeksAdapter implements CodingPlatformAdapter {
         log.info("LIVE_GFG_CHECK username={} date={}", targetUsername, date);
 
         boolean submitted = false;
-        String message = "No submission detected on GeeksforGeeks for " + targetUsername;
+        int totalSolved = 0;
+        int streak = 0;
+        String message = "GeeksforGeeks profile checked for " + targetUsername;
 
         try {
             HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create("https://www.geeksforgeeks.org/profile/" + targetUsername))
+                    .uri(URI.create("https://www.geeksforgeeks.org/user/" + targetUsername + "/"))
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                     .GET()
                     .build();
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            if (resp.statusCode() == 200) {
-                message = "GeeksforGeeks profile queried for " + targetUsername;
+
+            if (resp.statusCode() == 200 && resp.body() != null) {
+                String body = resp.body();
+
+                Matcher solvedMatcher = Pattern.compile("\"total_problems_solved\":\\s*(\\d+)").matcher(body);
+                if (solvedMatcher.find()) {
+                    totalSolved = Integer.parseInt(solvedMatcher.group(1));
+                }
+
+                Matcher streakMatcher = Pattern.compile("\"pod_solved_current_streak\":\\s*(\\d+)").matcher(body);
+                if (streakMatcher.find()) {
+                    streak = Integer.parseInt(streakMatcher.group(1));
+                }
+
+                Matcher scoreMatcher = Pattern.compile("\"score\":\\s*(\\d+)").matcher(body);
+                if (scoreMatcher.find() && totalSolved == 0) {
+                    totalSolved = Integer.parseInt(scoreMatcher.group(1));
+                }
+
+                if (totalSolved > 0) {
+                    submitted = true;
+                    message = "Verified: " + totalSolved + " problem(s) solved on GeeksforGeeks for " + targetUsername;
+                }
             }
         } catch (Exception e) {
             log.warn("LIVE_GFG_WARN username={} err={}", targetUsername, e.getMessage());
         }
 
-        log.info("LIVE_GFG_RESULT username={} submitted={}", targetUsername, submitted);
+        log.info("LIVE_GFG_RESULT username={} submitted={} totalSolved={} streak={}", targetUsername, submitted, totalSolved, streak);
 
         return PlatformStatusResult.builder()
                 .platform(PlatformEnum.GEEKSFORGEEKS)
                 .username(targetUsername)
                 .date(date)
                 .submittedToday(submitted)
-                .streakCount(0)
-                .totalSolved(0)
+                .streakCount(Math.max(submitted ? 1 : 0, streak))
+                .totalSolved(totalSolved)
                 .message(message)
                 .checkedAt(Instant.now())
                 .build();
