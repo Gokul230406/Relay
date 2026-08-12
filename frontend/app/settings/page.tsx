@@ -82,10 +82,10 @@ export default function SettingsPage() {
     try {
       await api.updateSettings(settings);
       
-      // Save platform connections & cookies
+      // Save platform connections & session cookies
       for (const p of ['LEETCODE', 'CODECHEF', 'GEEKSFORGEEKS'] as PlatformEnum[]) {
         if (handles[p]) {
-          await api.connectPlatform(p, handles[p]);
+          await api.connectPlatform(p, handles[p], cookies[p] || undefined);
         }
       }
 

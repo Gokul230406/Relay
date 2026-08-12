@@ -87,7 +87,7 @@ class StreakSaverConcurrencyTest {
         when(streakCheckerService.checkAllPlatforms(eq(userId), any())).thenReturn(statuses);
 
         CodingPlatformAdapter adapter = mock(CodingPlatformAdapter.class);
-        when(adapter.submit(anyString(), any())).thenReturn(SubmissionResult.builder()
+        when(adapter.submit(anyString(), any(), any())).thenReturn(SubmissionResult.builder()
                 .platform(PlatformEnum.LEETCODE)
                 .success(true)
                 .submissionId("sub_multi_100")

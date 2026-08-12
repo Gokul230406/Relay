@@ -59,6 +59,12 @@ public class PlatformController {
         conn.setConnectionMessage("Connected to " + platform.getDisplayName());
         conn.setLastVerifiedAt(Instant.now());
 
+        // Save session cookie for authenticated submissions
+        if (body.authToken() != null && !body.authToken().isBlank()) {
+            conn.setEncryptedAuthToken(body.authToken());
+            conn.setConnectionMessage("Connected to " + platform.getDisplayName() + " with session token");
+        }
+
         platformConnectionRepository.save(conn);
 
         return ResponseEntity.ok(PlatformConnectionDTO.builder()

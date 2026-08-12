@@ -10,10 +10,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -22,7 +22,10 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(CodeChefAdapter.class);
     private static final String DEFAULT_DEMO_USERNAME = "gold_dear_38";
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .connectTimeout(Duration.ofSeconds(15))
+            .build();
 
     @Override
     public PlatformEnum getPlatform() {
@@ -31,16 +34,12 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
 
     @Override
     public PlatformStatusResult checkSubmissionStatus(String platformUsername, LocalDate date) {
-        String targetUsername = (platformUsername != null && !platformUsername.isBlank() && !platformUsername.equals("unconnected")) 
-                ? platformUsername 
-                : DEFAULT_DEMO_USERNAME;
-
-        log.info("LIVE_CODECHEF_QUERY_STARTED username={} date={}", targetUsername, date);
+        String targetUsername = validHandle(platformUsername);
+        log.info("LIVE_CODECHEF_CHECK username={} date={}", targetUsername, date);
 
         boolean submitted = false;
-        int streak = 0;
         int totalSolved = 0;
-        String message = "No submission detected on CodeChef profile for " + targetUsername;
+        String message = "No submission detected on CodeChef for " + targetUsername;
 
         try {
             HttpRequest req = HttpRequest.newBuilder()
@@ -48,33 +47,24 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                     .GET()
                     .build();
-
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
 
             if (resp.statusCode() == 200 && resp.body() != null) {
-                String body = resp.body();
-
-                Matcher solvedMatcher = Pattern.compile("Fully Solved\\s*\\((\\d+)\\)").matcher(body);
-                if (solvedMatcher.find()) {
-                    totalSolved = Integer.parseInt(solvedMatcher.group(1));
-                }
-
-                message = "No submission detected on CodeChef profile for " + targetUsername + " on " + date;
+                Matcher m = Pattern.compile("Fully Solved\\s*\\((\\d+)\\)").matcher(resp.body());
+                if (m.find()) totalSolved = Integer.parseInt(m.group(1));
             }
         } catch (Exception e) {
-            log.warn("LIVE_CODECHEF_QUERY_WARN username={} err={}", targetUsername, e.getMessage());
-            message = "Unable to query live CodeChef profile for " + targetUsername;
+            log.warn("LIVE_CODECHEF_WARN username={} err={}", targetUsername, e.getMessage());
         }
 
-        log.info("LIVE_CODECHEF_QUERY_COMPLETED username={} date={} submitted={} streak={} totalSolved={}", 
-                targetUsername, date, submitted, streak, totalSolved);
+        log.info("LIVE_CODECHEF_RESULT username={} submitted={} totalSolved={}", targetUsername, submitted, totalSolved);
 
         return PlatformStatusResult.builder()
                 .platform(PlatformEnum.CODECHEF)
                 .username(targetUsername)
                 .date(date)
                 .submittedToday(submitted)
-                .streakCount(streak)
+                .streakCount(0)
                 .totalSolved(totalSolved)
                 .message(message)
                 .checkedAt(Instant.now())
@@ -82,36 +72,45 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
     }
 
     @Override
-    public SubmissionResult submit(String platformUsername, ProblemPool solutionPoolItem) {
-        String targetUsername = (platformUsername != null && !platformUsername.isBlank()) ? platformUsername : DEFAULT_DEMO_USERNAME;
-        
-        log.info("SUBMISSION_ATTEMPT platform=CODECHEF username={} problem={}", 
-                targetUsername, solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "none");
+    public SubmissionResult submit(String platformUsername, ProblemPool solutionPoolItem, String sessionToken) {
+        String targetUsername = validHandle(platformUsername);
+        log.info("CODECHEF_SUBMIT username={} sessionProvided={}", targetUsername, sessionToken != null && !sessionToken.isBlank());
 
-        PlatformStatusResult statusAfter = checkSubmissionStatus(targetUsername, LocalDate.now(ZoneOffset.UTC));
-
-        if (statusAfter.isSubmittedToday()) {
-            return SubmissionResult.builder()
-                    .platform(PlatformEnum.CODECHEF)
-                    .success(true)
-                    .submissionId("cc_live_" + UUID.randomUUID().toString().substring(0, 8))
-                    .problemId(solutionPoolItem != null ? solutionPoolItem.getProblemId() : "FCTRL2")
-                    .problemTitle(solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "Small Factorials")
-                    .message("Live CodeChef submission verified on handle profile: " + targetUsername)
-                    .submittedAt(Instant.now())
-                    .build();
-        } else {
+        if (sessionToken == null || sessionToken.isBlank()) {
             return SubmissionResult.builder()
                     .platform(PlatformEnum.CODECHEF)
                     .success(false)
-                    .message("No submission detected on actual CodeChef profile for " + targetUsername + ". Provide a valid session token in Settings to perform live platform submissions.")
+                    .message("CodeChef session token required. Go to Settings > CodeChef > Session Cookie and paste your CodeChef session cookie.")
                     .submittedAt(Instant.now())
                     .build();
         }
+
+        // CodeChef submission would use their IDE API with session cookie
+        // For now, return status based on live profile check
+        PlatformStatusResult status = checkSubmissionStatus(targetUsername, LocalDate.now(ZoneOffset.UTC));
+        if (status.isSubmittedToday()) {
+            return SubmissionResult.builder()
+                    .platform(PlatformEnum.CODECHEF)
+                    .success(true)
+                    .message("CodeChef submission verified on handle: " + targetUsername)
+                    .submittedAt(Instant.now())
+                    .build();
+        }
+
+        return SubmissionResult.builder()
+                .platform(PlatformEnum.CODECHEF)
+                .success(false)
+                .message("CodeChef session-based submission not yet supported. Submit manually to CodeChef to maintain streak.")
+                .submittedAt(Instant.now())
+                .build();
     }
 
     @Override
     public PlatformStatusResult getPlatformStatus(String platformUsername) {
         return checkSubmissionStatus(platformUsername, LocalDate.now(ZoneOffset.UTC));
+    }
+
+    private String validHandle(String u) {
+        return (u != null && !u.isBlank() && !u.equals("unconnected")) ? u : DEFAULT_DEMO_USERNAME;
     }
 }

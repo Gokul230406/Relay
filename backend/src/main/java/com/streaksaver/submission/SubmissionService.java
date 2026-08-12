@@ -93,9 +93,10 @@ public class SubmissionService {
 
                 Optional<PlatformConnection> conn = platformConnectionRepository.findByUserIdAndPlatform(userId, platform);
                 String handle = conn.map(PlatformConnection::getPlatformUsername).orElse("user_" + userId);
+                String sessionToken = conn.map(PlatformConnection::getEncryptedAuthToken).orElse(null);
 
                 CodingPlatformAdapter adapter = adapterFactory.getAdapter(platform);
-                SubmissionResult result = adapter.submit(handle, poolItem);
+                SubmissionResult result = adapter.submit(handle, poolItem, sessionToken);
 
                 if (result.isSuccess()) {
                     DailyPlatformStatus statusDoc = dailyPlatformStatusRepository

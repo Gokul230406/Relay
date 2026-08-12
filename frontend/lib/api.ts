@@ -109,10 +109,10 @@ export const api = {
   // Platforms
   getPlatformConnections: () => request<PlatformConnection[]>('/platforms/status'),
 
-  connectPlatform: (platform: PlatformEnum, username: string) =>
+  connectPlatform: (platform: PlatformEnum, username: string, authToken?: string) =>
     request<PlatformConnection>(`/platforms/${platform}/connect`, {
       method: 'POST',
-      body: JSON.stringify({ username }),
+      body: JSON.stringify({ username, authToken: authToken || '' }),
     }),
 
   disconnectPlatform: (platform: PlatformEnum) =>

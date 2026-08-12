@@ -10,7 +10,14 @@ public interface CodingPlatformAdapter {
 
     PlatformStatusResult checkSubmissionStatus(String platformUsername, LocalDate date);
 
-    SubmissionResult submit(String platformUsername, ProblemPool solutionPoolItem);
+    /**
+     * Submit code to the platform using the user's session token.
+     * @param platformUsername the user's handle on the platform
+     * @param solutionPoolItem the problem + solution code to submit
+     * @param sessionToken the user's authenticated session cookie/token (e.g. LEETCODE_SESSION)
+     * @return result of the submission attempt
+     */
+    SubmissionResult submit(String platformUsername, ProblemPool solutionPoolItem, String sessionToken);
 
     PlatformStatusResult getPlatformStatus(String platformUsername);
 }
