@@ -61,7 +61,7 @@ public class SubmissionService {
         ZoneId zone = (userTimezone != null && !userTimezone.isBlank()) ? ZoneId.of(userTimezone) : ZoneId.of("Asia/Kolkata");
         LocalDate today = LocalDate.now(zone);
 
-        log.info("MULTI_PLATFORM_SUBMISSION_STARTED userId={} date={}", userId, today);
+        log.info("MULTI_PLATFORM_SUBMISSION_STARTED userId={} date={} mode=UNLIMITED_TRIGGER", userId, today);
 
         Map<PlatformEnum, PlatformStatusResult> statuses = streakCheckerService.checkAllPlatforms(userId, today);
 
@@ -75,58 +75,51 @@ public class SubmissionService {
         List<String> submittedPlatforms = Collections.synchronizedList(new ArrayList<>());
         List<String> submissionDetails = Collections.synchronizedList(new ArrayList<>());
 
-        // Submit to all enabled platforms concurrently for ultra-fast execution
+        // Submit to all enabled platforms concurrently ON EVERY TRIGGER (Limit Removed as requested)
         List<CompletableFuture<Void>> futures = enabledPlatforms.stream().map(platform ->
             CompletableFuture.runAsync(() -> {
-                PlatformStatusResult status = statuses.get(platform);
-                boolean alreadySubmitted = status != null && status.isSubmittedToday();
+                List<ProblemPool> poolItems = problemPoolRepository.findByUserIdAndPlatformAndActiveTrue(userId, platform);
+                ProblemPool poolItem = (poolItems != null && !poolItems.isEmpty()) ? poolItems.get(0) : null;
 
-                if (!alreadySubmitted) {
-                    List<ProblemPool> poolItems = problemPoolRepository.findByUserIdAndPlatformAndActiveTrue(userId, platform);
-                    ProblemPool poolItem = (poolItems != null && !poolItems.isEmpty()) ? poolItems.get(0) : null;
+                if (poolItem == null) {
+                    poolItem = ProblemPool.builder()
+                            .userId(userId)
+                            .platform(platform)
+                            .problemId(platform == PlatformEnum.CODECHEF ? "FLOW001" : platform == PlatformEnum.GEEKSFORGEEKS ? "nth-fibonacci-number1335" : "1")
+                            .problemTitle("Standard Challenge (" + platform.getDisplayName() + ")")
+                            .language("java")
+                            .solutionCode("class Solution { public static void main(String[] args){} }")
+                            .build();
+                }
 
-                    if (poolItem == null) {
-                        poolItem = ProblemPool.builder()
-                                .userId(userId)
-                                .platform(platform)
-                                .problemId(platform == PlatformEnum.CODECHEF ? "FLOW001" : platform == PlatformEnum.GEEKSFORGEEKS ? "nth-fibonacci-number1335" : "1")
-                                .problemTitle("Standard Challenge (" + platform.getDisplayName() + ")")
-                                .language("java")
-                                .solutionCode("class Solution { public static void main(String[] args){} }")
-                                .build();
-                    }
+                Optional<PlatformConnection> conn = platformConnectionRepository.findByUserIdAndPlatform(userId, platform);
+                String handle = conn.map(PlatformConnection::getPlatformUsername).orElse("user_" + userId);
+                String sessionToken = conn.map(PlatformConnection::getEncryptedAuthToken).orElse(null);
 
-                    Optional<PlatformConnection> conn = platformConnectionRepository.findByUserIdAndPlatform(userId, platform);
-                    String handle = conn.map(PlatformConnection::getPlatformUsername).orElse("user_" + userId);
-                    String sessionToken = conn.map(PlatformConnection::getEncryptedAuthToken).orElse(null);
+                CodingPlatformAdapter adapter = adapterFactory.getAdapter(platform);
+                SubmissionResult result = adapter.submit(handle, poolItem, sessionToken);
 
-                    CodingPlatformAdapter adapter = adapterFactory.getAdapter(platform);
-                    SubmissionResult result = adapter.submit(handle, poolItem, sessionToken);
+                if (result.isSuccess()) {
+                    DailyPlatformStatus statusDoc = dailyPlatformStatusRepository
+                            .findByUserIdAndDateAndPlatform(userId, today, platform)
+                            .orElseGet(() -> DailyPlatformStatus.builder()
+                                    .userId(userId)
+                                    .date(today)
+                                    .platform(platform)
+                                    .build());
 
-                    if (result.isSuccess()) {
-                        DailyPlatformStatus statusDoc = dailyPlatformStatusRepository
-                                .findByUserIdAndDateAndPlatform(userId, today, platform)
-                                .orElseGet(() -> DailyPlatformStatus.builder()
-                                        .userId(userId)
-                                        .date(today)
-                                        .platform(platform)
-                                        .build());
+                    statusDoc.setSubmitted(true);
+                    statusDoc.setStreakCount(Math.max(1, statusDoc.getStreakCount() + 1));
+                    statusDoc.setCheckedAt(Instant.now());
+                    dailyPlatformStatusRepository.save(statusDoc);
 
-                        statusDoc.setSubmitted(true);
-                        statusDoc.setStreakCount(Math.max(1, statusDoc.getStreakCount() + 1));
-                        statusDoc.setCheckedAt(Instant.now());
-                        dailyPlatformStatusRepository.save(statusDoc);
+                    submittedPlatforms.add(platform.getDisplayName());
+                    submissionDetails.add(platform.getDisplayName() + ": " + result.getProblemTitle() + " (" + result.getSubmissionId() + ")");
 
-                        submittedPlatforms.add(platform.getDisplayName());
-                        submissionDetails.add(platform.getDisplayName() + ": " + result.getProblemTitle() + " (" + result.getSubmissionId() + ")");
-
-                        notificationService.sendSubmissionSuccessNotification(userId, platform.getDisplayName());
-                    } else {
-                        log.warn("PLATFORM_SUBMISSION_UNSUCCESSFUL platform={} message={}", platform, result.getMessage());
-                        submittedPlatforms.add(platform.getDisplayName() + " (Attempted: " + result.getMessage() + ")");
-                    }
+                    notificationService.sendSubmissionSuccessNotification(userId, platform.getDisplayName());
                 } else {
-                    submittedPlatforms.add(platform.getDisplayName() + " (Already Submitted)");
+                    log.warn("PLATFORM_SUBMISSION_UNSUCCESSFUL platform={} message={}", platform, result.getMessage());
+                    submittedPlatforms.add(platform.getDisplayName() + " (Attempted: " + result.getMessage() + ")");
                 }
             })
         ).toList();
@@ -139,11 +132,9 @@ public class SubmissionService {
         }
 
         recordHistory(userId, today, statuses, PlatformEnum.LEETCODE, GuardStatusEnum.SUCCESS, 
-                "Relay Multi-Platform Submit", String.join(" | ", submissionDetails));
+                "Relay Multi-Platform Triggered Submit", String.join(" | ", submissionDetails));
 
-        String message = submittedPlatforms.isEmpty()
-                ? "All platforms already have valid submissions today!"
-                : "Checked & submitted to platforms: " + String.join(", ", submittedPlatforms);
+        String message = "Triggered live submission to platforms: " + String.join(", ", submittedPlatforms);
 
         return SubmissionExecutionResponse.builder()
                 .executed(true)

@@ -43,7 +43,7 @@ public class SubmissionGuardService {
             Boolean success = redisTemplate.opsForValue().setIfAbsent(lockKey, "LOCKED", Duration.ofSeconds(timeoutSeconds));
             return Boolean.TRUE.equals(success);
         } catch (Exception e) {
-            log.warn("REDIS_LOCK_WARNING Failed to reach Redis for lock, falling back to database unique guard. error={}", e.getMessage());
+            log.warn("REDIS_LOCK_WARNING Failed to reach Redis for lock, falling back to database guard. error={}", e.getMessage());
             return true;
         }
     }
@@ -59,6 +59,15 @@ public class SubmissionGuardService {
 
     public DailySubmissionGuard createGuardRecord(String userId, LocalDate date, PlatformEnum selectedPlatform) {
         log.info("DAILY_GUARD_CREATED userId={} date={} platform={}", userId, date, selectedPlatform);
+
+        Optional<DailySubmissionGuard> existing = guardRepository.findByUserIdAndDate(userId, date);
+        if (existing.isPresent()) {
+            DailySubmissionGuard g = existing.get();
+            g.setSelectedPlatform(selectedPlatform);
+            g.setStatus(GuardStatusEnum.PENDING);
+            g.setAttemptStartedAt(Instant.now());
+            return guardRepository.save(g);
+        }
         
         DailySubmissionGuard guard = DailySubmissionGuard.builder()
                 .userId(userId)
@@ -71,8 +80,8 @@ public class SubmissionGuardService {
         try {
             return guardRepository.save(guard);
         } catch (DuplicateKeyException e) {
-            log.warn("DAILY_LIMIT_REACHED userId={} date={} Attempt rejected by database unique constraint", userId, date);
-            throw new IllegalStateException("DAILY_LIMIT_REACHED: Maximum 1 submission attempt allowed per calendar day.");
+            log.info("REUSING_GUARD_RECORD userId={} date={}", userId, date);
+            return guardRepository.findByUserIdAndDate(userId, date).orElse(guard);
         }
     }
 
