@@ -63,7 +63,12 @@ public class EmergencyStreakScheduler {
                     log.info("SCHEDULER_EMERGENCY_TIME_TRIGGERED userId={} emergencyTime={} userTimezone={}", 
                             config.getUserId(), config.getEmergencyTime(), config.getTimezone());
 
-                    submissionService.executeEmergencySubmission(config.getUserId(), config.getTimezone());
+                    if (!guardService.isSubmissionAttemptedToday(config.getUserId(), today)) {
+                        submissionService.executeEmergencySubmission(config.getUserId(), config.getTimezone());
+                    } else {
+                        log.info("SCHEDULER_SKIPPED userId={} date={} Reason: Guard already recorded today", 
+                                config.getUserId(), today);
+                    }
                 }
             } catch (Exception e) {
                 log.error("SCHEDULER_ERROR userId={} error={}", config.getUserId(), e.getMessage(), e);
