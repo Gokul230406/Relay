@@ -24,6 +24,11 @@ public class GeeksForGeeksAdapter implements CodingPlatformAdapter {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.ofSeconds(15))
             .build();
+    private final BrowserAutomationService browserService;
+
+    public GeeksForGeeksAdapter(BrowserAutomationService browserService) {
+        this.browserService = browserService;
+    }
 
     @Override
     public PlatformEnum getPlatform() {
@@ -69,38 +74,70 @@ public class GeeksForGeeksAdapter implements CodingPlatformAdapter {
     @Override
     public SubmissionResult submit(String platformUsername, ProblemPool solutionPoolItem, String sessionToken) {
         String targetUsername = validHandle(platformUsername);
-        log.info("GFG_SUBMIT username={} sessionProvided={}", targetUsername, sessionToken != null && !sessionToken.isBlank());
+        log.info("GFG_SUBMIT_ATTEMPT username={} problem={}", targetUsername,
+                solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "none");
 
-        if (sessionToken == null || sessionToken.isBlank()) {
+        if (solutionPoolItem == null || solutionPoolItem.getSolutionCode() == null) {
             return SubmissionResult.builder()
                     .platform(PlatformEnum.GEEKSFORGEEKS)
                     .success(false)
-                    .message("GeeksforGeeks session token required. Go to Settings > GFG > Session Cookie.")
+                    .message("No problem/solution in pool for GFG")
                     .submittedAt(Instant.now())
                     .build();
         }
 
-        PlatformStatusResult status = checkSubmissionStatus(targetUsername, LocalDate.now(ZoneOffset.UTC));
-        if (status.isSubmittedToday()) {
+        String password = extractPassword(sessionToken);
+        if (password == null || password.isBlank()) {
             return SubmissionResult.builder()
                     .platform(PlatformEnum.GEEKSFORGEEKS)
-                    .success(true)
-                    .message("GFG submission verified on handle: " + targetUsername)
+                    .success(false)
+                    .message("GFG credentials required. Go to Settings > GFG > Session Cookie and enter your password.")
                     .submittedAt(Instant.now())
                     .build();
         }
 
-        return SubmissionResult.builder()
-                .platform(PlatformEnum.GEEKSFORGEEKS)
-                .success(false)
-                .message("GFG session-based submission not yet supported. Submit manually to GFG to maintain streak.")
-                .submittedAt(Instant.now())
-                .build();
+        try {
+            String problemSlug = solutionPoolItem.getProblemId();
+            String result = browserService.submitToGfg(
+                    targetUsername, password, problemSlug,
+                    solutionPoolItem.getSolutionCode(),
+                    solutionPoolItem.getLanguage());
+
+            boolean success = result != null && result.contains("SUBMITTED");
+            log.info("GFG_SUBMIT_RESULT username={} problem={} success={} result={}",
+                    targetUsername, problemSlug, success, result);
+
+            return SubmissionResult.builder()
+                    .platform(PlatformEnum.GEEKSFORGEEKS)
+                    .success(success)
+                    .submissionId(success ? "gfg_" + System.currentTimeMillis() : null)
+                    .problemId(problemSlug)
+                    .problemTitle(solutionPoolItem.getProblemTitle())
+                    .message(success
+                            ? "✅ GFG submission completed for " + targetUsername + ": " + solutionPoolItem.getProblemTitle()
+                            : "GFG submission attempt: " + result)
+                    .submittedAt(Instant.now())
+                    .build();
+        } catch (Exception e) {
+            log.error("GFG_SUBMIT_ERROR username={} err={}", targetUsername, e.getMessage(), e);
+            return SubmissionResult.builder()
+                    .platform(PlatformEnum.GEEKSFORGEEKS)
+                    .success(false)
+                    .message("GFG submission error: " + e.getMessage())
+                    .submittedAt(Instant.now())
+                    .build();
+        }
     }
 
     @Override
     public PlatformStatusResult getPlatformStatus(String platformUsername) {
         return checkSubmissionStatus(platformUsername, LocalDate.now(ZoneOffset.UTC));
+    }
+
+    private String extractPassword(String token) {
+        if (token == null) return null;
+        if (token.contains(":")) return token.substring(token.indexOf(':') + 1);
+        return token;
     }
 
     private String validHandle(String u) {

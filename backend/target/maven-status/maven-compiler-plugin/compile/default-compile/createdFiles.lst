@@ -25,6 +25,7 @@ com\streaksaver\repository\DailySubmissionGuardRepository.class
 com\streaksaver\streak\DecisionResult$Builder.class
 com\streaksaver\model\DailyPlatformStatus.class
 com\streaksaver\model\SubmissionHistory.class
+com\streaksaver\platform\BrowserAutomationService.class
 com\streaksaver\platform\PlatformStatusResult$Builder.class
 com\streaksaver\submission\SubmissionService.class
 com\streaksaver\model\PlatformConfiguration.class

@@ -26,6 +26,11 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.ofSeconds(15))
             .build();
+    private final BrowserAutomationService browserService;
+
+    public CodeChefAdapter(BrowserAutomationService browserService) {
+        this.browserService = browserService;
+    }
 
     @Override
     public PlatformEnum getPlatform() {
@@ -74,40 +79,71 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
     @Override
     public SubmissionResult submit(String platformUsername, ProblemPool solutionPoolItem, String sessionToken) {
         String targetUsername = validHandle(platformUsername);
-        log.info("CODECHEF_SUBMIT username={} sessionProvided={}", targetUsername, sessionToken != null && !sessionToken.isBlank());
+        log.info("CODECHEF_SUBMIT_ATTEMPT username={} problem={}", targetUsername,
+                solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "none");
 
-        if (sessionToken == null || sessionToken.isBlank()) {
+        if (solutionPoolItem == null || solutionPoolItem.getSolutionCode() == null) {
             return SubmissionResult.builder()
                     .platform(PlatformEnum.CODECHEF)
                     .success(false)
-                    .message("CodeChef session token required. Go to Settings > CodeChef > Session Cookie and paste your CodeChef session cookie.")
+                    .message("No problem/solution in pool for CodeChef")
                     .submittedAt(Instant.now())
                     .build();
         }
 
-        // CodeChef submission would use their IDE API with session cookie
-        // For now, return status based on live profile check
-        PlatformStatusResult status = checkSubmissionStatus(targetUsername, LocalDate.now(ZoneOffset.UTC));
-        if (status.isSubmittedToday()) {
+        // Parse credentials from sessionToken: format "username:password" or just password
+        String password = extractPassword(sessionToken);
+        if (password == null || password.isBlank()) {
             return SubmissionResult.builder()
                     .platform(PlatformEnum.CODECHEF)
-                    .success(true)
-                    .message("CodeChef submission verified on handle: " + targetUsername)
+                    .success(false)
+                    .message("CodeChef credentials required. Go to Settings > CodeChef > Session Cookie and enter your password.")
                     .submittedAt(Instant.now())
                     .build();
         }
 
-        return SubmissionResult.builder()
-                .platform(PlatformEnum.CODECHEF)
-                .success(false)
-                .message("CodeChef session-based submission not yet supported. Submit manually to CodeChef to maintain streak.")
-                .submittedAt(Instant.now())
-                .build();
+        try {
+            String problemCode = solutionPoolItem.getProblemId();
+            String result = browserService.submitToCodeChef(
+                    targetUsername, password, problemCode,
+                    solutionPoolItem.getSolutionCode(),
+                    solutionPoolItem.getLanguage());
+
+            boolean success = result != null && result.contains("SUBMITTED");
+            log.info("CODECHEF_SUBMIT_RESULT username={} problem={} success={} result={}", 
+                    targetUsername, problemCode, success, result);
+
+            return SubmissionResult.builder()
+                    .platform(PlatformEnum.CODECHEF)
+                    .success(success)
+                    .submissionId(success ? "cc_" + System.currentTimeMillis() : null)
+                    .problemId(problemCode)
+                    .problemTitle(solutionPoolItem.getProblemTitle())
+                    .message(success
+                            ? "✅ CodeChef submission completed for " + targetUsername + ": " + solutionPoolItem.getProblemTitle()
+                            : "CodeChef submission attempt: " + result)
+                    .submittedAt(Instant.now())
+                    .build();
+        } catch (Exception e) {
+            log.error("CODECHEF_SUBMIT_ERROR username={} err={}", targetUsername, e.getMessage(), e);
+            return SubmissionResult.builder()
+                    .platform(PlatformEnum.CODECHEF)
+                    .success(false)
+                    .message("CodeChef submission error: " + e.getMessage())
+                    .submittedAt(Instant.now())
+                    .build();
+        }
     }
 
     @Override
     public PlatformStatusResult getPlatformStatus(String platformUsername) {
         return checkSubmissionStatus(platformUsername, LocalDate.now(ZoneOffset.UTC));
+    }
+
+    private String extractPassword(String token) {
+        if (token == null) return null;
+        if (token.contains(":")) return token.substring(token.indexOf(':') + 1);
+        return token;
     }
 
     private String validHandle(String u) {
