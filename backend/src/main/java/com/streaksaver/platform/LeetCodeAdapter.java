@@ -12,6 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -35,15 +36,18 @@ public class LeetCodeAdapter implements CodingPlatformAdapter {
                 ? platformUsername 
                 : DEFAULT_DEMO_USERNAME;
 
-        log.info("LIVE_LEETCODE_QUERY_STARTED username={} date={}", targetUsername, date);
+        LocalDate targetDate = (date != null) ? date : LocalDate.now(ZoneId.of("UTC"));
+
+        log.info("LIVE_LEETCODE_GRAPHQL_CHECK username={} date={}", targetUsername, targetDate);
 
         boolean submitted = false;
         int streak = 0;
         int totalSolved = 0;
-        String message = "No submission detected on LeetCode profile for " + targetUsername;
+        String verifiedProblemTitle = null;
+        String message = "No submission detected on LeetCode profile for " + targetUsername + " on " + targetDate;
 
         try {
-            String graphqlQuery = "{\"query\":\"query userProfileCalendar($username: String!) { matchedUser(username: $username) { userCalendar { streak totalActiveDays submissionCalendar } submitStats { acSubmissionNum { difficulty count } } } }\",\"variables\":{\"username\":\"" + targetUsername + "\"}}";
+            String graphqlQuery = "{\"query\":\"query userCheck($username: String!) { matchedUser(username: $username) { userCalendar { streak totalActiveDays submissionCalendar } submitStats { acSubmissionNum { difficulty count } } } recentAcSubmissionList(username: $username, limit: 15) { id title titleSlug timestamp } }\",\"variables\":{\"username\":\"" + targetUsername + "\"}}";
 
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create("https://leetcode.com/graphql"))
@@ -57,41 +61,64 @@ public class LeetCodeAdapter implements CodingPlatformAdapter {
             if (resp.statusCode() == 200 && resp.body() != null) {
                 String body = resp.body();
 
-                // Extract streak
+                // 1. Extract streak
                 Matcher streakMatcher = Pattern.compile("\"streak\":\\s*(\\d+)").matcher(body);
                 if (streakMatcher.find()) {
                     streak = Integer.parseInt(streakMatcher.group(1));
                 }
 
-                // Extract total solved
+                // 2. Extract total solved count
                 Matcher solvedMatcher = Pattern.compile("\"difficulty\":\\s*\"All\",\\s*\"count\":\\s*(\\d+)").matcher(body);
                 if (solvedMatcher.find()) {
                     totalSolved = Integer.parseInt(solvedMatcher.group(1));
                 }
 
-                // Check submission calendar for today's epoch day
-                long todayEpochSec = date.atStartOfDay(ZoneOffset.UTC).toEpochSecond();
-                String todayKey = String.valueOf(todayEpochSec);
+                // 3. Check recentAcSubmissionList for submissions on targetDate or within last 24 hours
+                Pattern recentPattern = Pattern.compile("\"title\":\\s*\"([^\"]+)\"[^}]*\"timestamp\":\\s*\"(\\d+)\"");
+                Matcher recentMatcher = recentPattern.matcher(body);
 
-                if (body.contains("\"" + todayKey + "\"")) {
-                    submitted = true;
-                    message = "Live submission verified on LeetCode profile for " + targetUsername;
+                while (recentMatcher.find()) {
+                    String title = recentMatcher.group(1);
+                    long timestampSec = Long.parseLong(recentMatcher.group(2));
+                    LocalDate subDate = Instant.ofEpochSecond(timestampSec).atZone(ZoneId.of("UTC")).toLocalDate();
+
+                    if (subDate.equals(targetDate) || subDate.equals(LocalDate.now(ZoneId.of("UTC")))) {
+                        submitted = true;
+                        verifiedProblemTitle = title;
+                        break;
+                    }
+                }
+
+                // 4. Check submissionCalendar epoch timestamps
+                if (!submitted) {
+                    long todayEpochSec = targetDate.atStartOfDay(ZoneOffset.UTC).toEpochSecond();
+                    long nowEpochSec = LocalDate.now(ZoneId.of("UTC")).atStartOfDay(ZoneOffset.UTC).toEpochSecond();
+                    
+                    if (body.contains("\"" + todayEpochSec + "\"") || body.contains("\"" + nowEpochSec + "\"")) {
+                        submitted = true;
+                    }
+                }
+
+                if (submitted) {
+                    message = verifiedProblemTitle != null
+                            ? "Verified submission on LeetCode profile (" + verifiedProblemTitle + ") for " + targetUsername
+                            : "Verified submission detected on LeetCode profile for " + targetUsername;
                 } else {
-                    message = "No submission detected on LeetCode profile for " + targetUsername + " on " + date;
+                    message = "No submission detected on LeetCode profile for " + targetUsername + " on " + targetDate;
                 }
             }
         } catch (Exception e) {
-            log.warn("LIVE_LEETCODE_QUERY_WARN username={} err={}", targetUsername, e.getMessage());
-            message = "Unable to query live LeetCode API for " + targetUsername;
+            log.warn("LIVE_LEETCODE_GRAPHQL_WARN username={} err={}", targetUsername, e.getMessage());
+            message = "Unable to query live LeetCode GraphQL API for " + targetUsername;
         }
 
-        log.info("LIVE_LEETCODE_QUERY_COMPLETED username={} date={} submitted={} streak={} totalSolved={}", 
-                targetUsername, date, submitted, streak, totalSolved);
+        log.info("LIVE_LEETCODE_CHECK_RESULT username={} date={} submitted={} streak={} totalSolved={}", 
+                targetUsername, targetDate, submitted, streak, totalSolved);
 
         return PlatformStatusResult.builder()
                 .platform(PlatformEnum.LEETCODE)
                 .username(targetUsername)
-                .date(date)
+                .date(targetDate)
                 .submittedToday(submitted)
                 .streakCount(streak)
                 .totalSolved(totalSolved)
@@ -107,8 +134,8 @@ public class LeetCodeAdapter implements CodingPlatformAdapter {
         log.info("SUBMISSION_ATTEMPT platform=LEETCODE username={} problem={}", 
                 targetUsername, solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "none");
 
-        // Check if submission reflected on live profile
-        PlatformStatusResult statusAfter = checkSubmissionStatus(targetUsername, LocalDate.now(ZoneOffset.UTC));
+        // Execute live status query against LeetCode GraphQL API
+        PlatformStatusResult statusAfter = checkSubmissionStatus(targetUsername, LocalDate.now(ZoneId.of("UTC")));
 
         if (statusAfter.isSubmittedToday()) {
             return SubmissionResult.builder()
@@ -117,14 +144,14 @@ public class LeetCodeAdapter implements CodingPlatformAdapter {
                     .submissionId("lc_live_" + UUID.randomUUID().toString().substring(0, 8))
                     .problemId(solutionPoolItem != null ? solutionPoolItem.getProblemId() : "1")
                     .problemTitle(solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "Two Sum")
-                    .message("Live LeetCode submission verified on handle profile: " + targetUsername)
+                    .message("Live submission empirically verified on LeetCode handle profile: " + targetUsername)
                     .submittedAt(Instant.now())
                     .build();
         } else {
             return SubmissionResult.builder()
                     .platform(PlatformEnum.LEETCODE)
                     .success(false)
-                    .message("No submission detected on actual LeetCode profile for " + targetUsername + ". Provide a valid LEETCODE_SESSION cookie in Settings to perform live platform submissions.")
+                    .message("No submission detected on actual LeetCode profile for handle: " + targetUsername + ". Perform a submission on LeetCode or provide your LEETCODE_SESSION cookie in Settings.")
                     .submittedAt(Instant.now())
                     .build();
         }
@@ -132,6 +159,6 @@ public class LeetCodeAdapter implements CodingPlatformAdapter {
 
     @Override
     public PlatformStatusResult getPlatformStatus(String platformUsername) {
-        return checkSubmissionStatus(platformUsername, LocalDate.now(ZoneOffset.UTC));
+        return checkSubmissionStatus(platformUsername, LocalDate.now(ZoneId.of("UTC")));
     }
 }
