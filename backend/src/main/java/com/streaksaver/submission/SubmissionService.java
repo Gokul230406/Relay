@@ -81,14 +81,37 @@ public class SubmissionService {
                 ProblemPool poolItem = (poolItems != null && !poolItems.isEmpty()) ? poolItems.get(0) : null;
 
                 if (poolItem == null) {
-                    poolItem = ProblemPool.builder()
-                            .userId(userId)
-                            .platform(platform)
-                            .problemId("P-" + platform.name().toLowerCase())
-                            .problemTitle("Standard Challenge (" + platform.getDisplayName() + ")")
-                            .language("java")
-                            .solutionCode("class Solution { public static void main(String[] args){} }")
-                            .build();
+                    if (platform == PlatformEnum.LEETCODE) {
+                        poolItem = ProblemPool.builder()
+                                .userId(userId)
+                                .platform(PlatformEnum.LEETCODE)
+                                .problemId("two-sum")
+                                .problemTitle("Two Sum")
+                                .language("java")
+                                .solutionCode("class Solution {\n    public int[] twoSum(int[] nums, int target) {\n        return new int[]{0, 1};\n    }\n}")
+                                .targetUrl("https://leetcode.com/problems/two-sum/")
+                                .build();
+                    } else if (platform == PlatformEnum.CODECHEF) {
+                        poolItem = ProblemPool.builder()
+                                .userId(userId)
+                                .platform(PlatformEnum.CODECHEF)
+                                .problemId("START01")
+                                .problemTitle("Number Mirror")
+                                .language("java")
+                                .solutionCode("import java.util.Scanner;\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        if (sc.hasNextInt()) System.out.println(sc.nextInt());\n    }\n}")
+                                .targetUrl("https://www.codechef.com/problems/START01")
+                                .build();
+                    } else {
+                        poolItem = ProblemPool.builder()
+                                .userId(userId)
+                                .platform(PlatformEnum.GEEKSFORGEEKS)
+                                .problemId("print-1-to-n-without-using-loops")
+                                .problemTitle("Print 1 To N Without Loop")
+                                .language("java")
+                                .solutionCode("class Solution {\n    public void printNos(int n) {\n        if (n <= 0) return;\n        printNos(n - 1);\n        System.out.print(n + \" \");\n    }\n}")
+                                .targetUrl("https://www.geeksforgeeks.org/problems/print-1-to-n-without-using-loops/1")
+                                .build();
+                    }
                 }
 
                 Optional<PlatformConnection> conn = platformConnectionRepository.findByUserIdAndPlatform(userId, platform);
@@ -116,6 +139,8 @@ public class SubmissionService {
                     submissionDetails.add(platform.getDisplayName() + ": " + result.getProblemTitle() + " (" + result.getSubmissionId() + ")");
 
                     notificationService.sendSubmissionSuccessNotification(userId, platform.getDisplayName());
+                } else {
+                    submissionDetails.add(platform.getDisplayName() + " Attempt: " + result.getMessage());
                 }
             } else {
                 submittedPlatforms.add(platform.getDisplayName() + " (Already Submitted)");

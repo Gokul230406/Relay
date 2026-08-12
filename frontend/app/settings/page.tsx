@@ -213,15 +213,26 @@ export default function SettingsPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
-                    Session Cookie / Auth Token <span className="text-slate-500 font-normal">(For Live Platform Submission)</span>
+                    Session Cookie / Auth Token <span className="text-slate-500 font-normal">(Required for automated submission)</span>
                   </label>
                   <input
                     type="password"
                     value={cookies[plat]}
                     onChange={(e) => setCookies({ ...cookies, [plat]: e.target.value })}
-                    placeholder={`Paste ${plat} session cookie (e.g. LEETCODE_SESSION=...)`}
+                    placeholder={
+                      plat === 'LEETCODE'
+                        ? 'LEETCODE_SESSION=...; csrftoken=...'
+                        : plat === 'CODECHEF'
+                        ? 'CodeChef session cookie or password'
+                        : 'GFG session cookie or password'
+                    }
                     className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white font-mono focus:border-orange-500 focus:outline-none"
                   />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {plat === 'LEETCODE'
+                      ? 'Copy LEETCODE_SESSION from F12 DevTools > Application > Cookies'
+                      : 'Copy session cookie from browser F12 DevTools'}
+                  </p>
                 </div>
               </div>
             </div>

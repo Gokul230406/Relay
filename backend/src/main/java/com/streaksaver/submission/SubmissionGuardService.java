@@ -33,6 +33,12 @@ public class SubmissionGuardService {
         return guardRepository.existsByUserIdAndDate(userId, date);
     }
 
+    public boolean isSubmissionSuccessfullyCompletedToday(String userId, LocalDate date) {
+        return guardRepository.findByUserIdAndDate(userId, date)
+                .map(guard -> guard.getStatus() == GuardStatusEnum.SUCCESS)
+                .orElse(false);
+    }
+
     public Optional<DailySubmissionGuard> getTodayGuardRecord(String userId, LocalDate date) {
         return guardRepository.findByUserIdAndDate(userId, date);
     }
