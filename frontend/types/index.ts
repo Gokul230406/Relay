@@ -80,6 +80,7 @@ export interface ProblemPoolItem {
 export interface PlatformConnection {
   platform: PlatformEnum;
   platformUsername: string;
+  encryptedAuthToken?: string;
   connected: boolean;
   connectionMessage: string;
 }
