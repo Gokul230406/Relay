@@ -53,12 +53,14 @@ public class StreakCheckerService {
             CodingPlatformAdapter adapter = adapterFactory.getAdapter(platform);
             String handle = userPlatformHandles.get(platform);
             
-            // Query strictly against the live profile API for target handle
-            PlatformStatusResult status = adapter.checkSubmissionStatus(handle, date);
-            resultMap.put(platform, status);
+            PlatformStatusResult liveStatus = adapter.checkSubmissionStatus(handle, date);
 
             Optional<DailyPlatformStatus> existingOpt = dailyPlatformStatusRepository
                     .findByUserIdAndDateAndPlatform(userId, date, platform);
+
+            // Retain submitted = true if either live profile adapter or Relay submission engine recorded it
+            boolean isSubmitted = liveStatus.isSubmittedToday() || (existingOpt.isPresent() && existingOpt.get().isSubmitted());
+            int streakCount = Math.max(liveStatus.getStreakCount(), existingOpt.map(DailyPlatformStatus::getStreakCount).orElse(0));
 
             DailyPlatformStatus statusDoc = existingOpt.orElseGet(() -> DailyPlatformStatus.builder()
                     .userId(userId)
@@ -66,10 +68,25 @@ public class StreakCheckerService {
                     .platform(platform)
                     .build());
 
-            statusDoc.setSubmitted(status.isSubmittedToday());
-            statusDoc.setStreakCount(status.getStreakCount());
+            statusDoc.setSubmitted(isSubmitted);
+            statusDoc.setStreakCount(isSubmitted ? Math.max(1, streakCount) : streakCount);
             statusDoc.setCheckedAt(Instant.now());
             dailyPlatformStatusRepository.save(statusDoc);
+
+            PlatformStatusResult finalStatus = PlatformStatusResult.builder()
+                    .platform(platform)
+                    .username(handle != null ? handle : "unconnected")
+                    .date(date)
+                    .submittedToday(isSubmitted)
+                    .streakCount(statusDoc.getStreakCount())
+                    .totalSolved(liveStatus.getTotalSolved())
+                    .message(isSubmitted 
+                            ? "Verified submission active on " + platform.getDisplayName()
+                            : liveStatus.getMessage())
+                    .checkedAt(Instant.now())
+                    .build();
+
+            resultMap.put(platform, finalStatus);
         }
 
         log.info("STREAK_CHECK_COMPLETED userId={} date={} leetcodeSubmitted={} codechefSubmitted={} gfgSubmitted={}",
