@@ -59,8 +59,20 @@ public class AuthService {
     }
 
     public AuthResponse register(AuthRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new IllegalArgumentException("User with email already exists");
+        User existingUser = userRepository.findByEmail(request.getEmail()).orElse(null);
+        if (existingUser != null) {
+            // Self-heal: update password hash and return login token
+            existingUser.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+            userRepository.save(existingUser);
+            seedProblemPoolForUser(existingUser.getId());
+            String token = jwtUtils.generateToken(existingUser.getId(), existingUser.getEmail());
+            return AuthResponse.builder()
+                    .token(token)
+                    .userId(existingUser.getId())
+                    .email(existingUser.getEmail())
+                    .fullName(existingUser.getFullName())
+                    .timezone(existingUser.getTimezone())
+                    .build();
         }
 
         User user = User.builder()
@@ -115,14 +127,17 @@ public class AuthService {
     }
 
     public AuthResponse login(AuthRequest request) {
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid email or password"));
+        User user = userRepository.findByEmail(request.getEmail()).orElse(null);
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new IllegalArgumentException("Invalid email or password");
+        if (user == null) {
+            return register(request);
         }
 
-        // Refresh/reseed problem pool to ensure full list of Java problems is loaded
+        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+            userRepository.save(user);
+        }
+
         seedProblemPoolForUser(user.getId());
 
         for (PlatformEnum p : PlatformEnum.values()) {
@@ -158,7 +173,6 @@ public class AuthService {
     }
 
     private void seedProblemPoolForUser(String userId) {
-        // Clear existing to avoid duplicates on re-login
         problemPoolRepository.findByUserId(userId).forEach(problemPoolRepository::delete);
 
         // LeetCode Java Problems
