@@ -6,9 +6,9 @@
     "frontend"
   ],
   "scripts": {
-    "build": "cd frontend && npm install && npm run build",
-    "start": "cd frontend && npm run start",
-    "dev": "cd frontend && npm run dev"
+    "build": "npm run build --workspace=frontend",
+    "start": "npm run start --workspace=frontend",
+    "dev": "npm run dev --workspace=frontend"
   },
   "dependencies": {
     "next": "16.3.0",
