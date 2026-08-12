@@ -6,16 +6,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class CodeChefAdapter implements CodingPlatformAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(CodeChefAdapter.class);
     private static final String DEFAULT_DEMO_USERNAME = "gold_dear_38";
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
     @Override
     public PlatformEnum getPlatform() {
@@ -28,15 +35,39 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
                 ? platformUsername 
                 : DEFAULT_DEMO_USERNAME;
 
-        log.info("PLATFORM_CHECK_STARTED platform=CODECHEF username={} date={}", targetUsername, date);
+        log.info("LIVE_CODECHEF_QUERY_STARTED username={} date={}", targetUsername, date);
 
-        // Live stats for handle gold_dear_38
         boolean submitted = false;
         int streak = 0;
         int totalSolved = 0;
+        String message = "No submission detected on CodeChef profile for " + targetUsername;
 
-        log.info("PLATFORM_CHECK_COMPLETED platform=CODECHEF username={} date={} submitted={}", 
-                targetUsername, date, submitted);
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create("https://www.codechef.com/users/" + targetUsername))
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+
+            if (resp.statusCode() == 200 && resp.body() != null) {
+                String body = resp.body();
+
+                Matcher solvedMatcher = Pattern.compile("Fully Solved\\s*\\((\\d+)\\)").matcher(body);
+                if (solvedMatcher.find()) {
+                    totalSolved = Integer.parseInt(solvedMatcher.group(1));
+                }
+
+                message = "No submission detected on CodeChef profile for " + targetUsername + " on " + date;
+            }
+        } catch (Exception e) {
+            log.warn("LIVE_CODECHEF_QUERY_WARN username={} err={}", targetUsername, e.getMessage());
+            message = "Unable to query live CodeChef profile for " + targetUsername;
+        }
+
+        log.info("LIVE_CODECHEF_QUERY_COMPLETED username={} date={} submitted={} streak={} totalSolved={}", 
+                targetUsername, date, submitted, streak, totalSolved);
 
         return PlatformStatusResult.builder()
                 .platform(PlatformEnum.CODECHEF)
@@ -45,7 +76,7 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
                 .submittedToday(submitted)
                 .streakCount(streak)
                 .totalSolved(totalSolved)
-                .message("No submission detected today for " + targetUsername)
+                .message(message)
                 .checkedAt(Instant.now())
                 .build();
     }
@@ -54,33 +85,29 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
     public SubmissionResult submit(String platformUsername, ProblemPool solutionPoolItem) {
         String targetUsername = (platformUsername != null && !platformUsername.isBlank()) ? platformUsername : DEFAULT_DEMO_USERNAME;
         
-        log.info("SESSION_CHECK platform=CODECHEF username={} status=AUTO_REFRESHED", targetUsername);
-        log.info("SUBMISSION_STARTED platform=CODECHEF username={} problemTitle={} language={}", 
-                targetUsername, solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "none",
-                solutionPoolItem != null ? solutionPoolItem.getLanguage() : "java");
+        log.info("SUBMISSION_ATTEMPT platform=CODECHEF username={} problem={}", 
+                targetUsername, solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "none");
 
-        if (solutionPoolItem == null || solutionPoolItem.getSolutionCode() == null) {
+        PlatformStatusResult statusAfter = checkSubmissionStatus(targetUsername, LocalDate.now(ZoneOffset.UTC));
+
+        if (statusAfter.isSubmittedToday()) {
+            return SubmissionResult.builder()
+                    .platform(PlatformEnum.CODECHEF)
+                    .success(true)
+                    .submissionId("cc_live_" + UUID.randomUUID().toString().substring(0, 8))
+                    .problemId(solutionPoolItem != null ? solutionPoolItem.getProblemId() : "FCTRL2")
+                    .problemTitle(solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "Small Factorials")
+                    .message("Live CodeChef submission verified on handle profile: " + targetUsername)
+                    .submittedAt(Instant.now())
+                    .build();
+        } else {
             return SubmissionResult.builder()
                     .platform(PlatformEnum.CODECHEF)
                     .success(false)
-                    .message("No active problem solution available in user problem pool")
+                    .message("No submission detected on actual CodeChef profile for " + targetUsername + ". Provide a valid session token in Settings to perform live platform submissions.")
+                    .submittedAt(Instant.now())
                     .build();
         }
-
-        String subId = "cc_sub_" + UUID.randomUUID().toString().substring(0, 8);
-        log.info("SUBMISSION_SUCCESS platform=CODECHEF submissionId={} problemTitle={} username={}", 
-                subId, solutionPoolItem.getProblemTitle(), targetUsername);
-
-        return SubmissionResult.builder()
-                .platform(PlatformEnum.CODECHEF)
-                .success(true)
-                .submissionId(subId)
-                .problemId(solutionPoolItem.getProblemId())
-                .problemTitle(solutionPoolItem.getProblemTitle())
-                .message("Permitted Java submission (" + solutionPoolItem.getProblemTitle() + ") completed successfully for profile: " + targetUsername)
-                .executionTime("0.04 s")
-                .submittedAt(Instant.now())
-                .build();
     }
 
     @Override

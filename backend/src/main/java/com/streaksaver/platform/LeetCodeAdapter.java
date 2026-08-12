@@ -6,16 +6,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class LeetCodeAdapter implements CodingPlatformAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(LeetCodeAdapter.class);
     private static final String DEFAULT_DEMO_USERNAME = "Fp1Dw82bqp";
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
     @Override
     public PlatformEnum getPlatform() {
@@ -28,15 +35,58 @@ public class LeetCodeAdapter implements CodingPlatformAdapter {
                 ? platformUsername 
                 : DEFAULT_DEMO_USERNAME;
 
-        log.info("PLATFORM_CHECK_STARTED platform=LEETCODE username={} date={}", targetUsername, date);
+        log.info("LIVE_LEETCODE_QUERY_STARTED username={} date={}", targetUsername, date);
 
-        // Live stats for handle Fp1Dw82bqp
         boolean submitted = false;
         int streak = 0;
         int totalSolved = 0;
-        
-        log.info("PLATFORM_CHECK_COMPLETED platform=LEETCODE username={} date={} submitted={}", 
-                targetUsername, date, submitted);
+        String message = "No submission detected on LeetCode profile for " + targetUsername;
+
+        try {
+            String graphqlQuery = "{\"query\":\"query userProfileCalendar($username: String!) { matchedUser(username: $username) { userCalendar { streak totalActiveDays submissionCalendar } submitStats { acSubmissionNum { difficulty count } } } }\",\"variables\":{\"username\":\"" + targetUsername + "\"}}";
+
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create("https://leetcode.com/graphql"))
+                    .header("Content-Type", "application/json")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .POST(HttpRequest.BodyPublishers.ofString(graphqlQuery))
+                    .build();
+
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+
+            if (resp.statusCode() == 200 && resp.body() != null) {
+                String body = resp.body();
+
+                // Extract streak
+                Matcher streakMatcher = Pattern.compile("\"streak\":\\s*(\\d+)").matcher(body);
+                if (streakMatcher.find()) {
+                    streak = Integer.parseInt(streakMatcher.group(1));
+                }
+
+                // Extract total solved
+                Matcher solvedMatcher = Pattern.compile("\"difficulty\":\\s*\"All\",\\s*\"count\":\\s*(\\d+)").matcher(body);
+                if (solvedMatcher.find()) {
+                    totalSolved = Integer.parseInt(solvedMatcher.group(1));
+                }
+
+                // Check submission calendar for today's epoch day
+                long todayEpochSec = date.atStartOfDay(ZoneOffset.UTC).toEpochSecond();
+                String todayKey = String.valueOf(todayEpochSec);
+
+                if (body.contains("\"" + todayKey + "\"")) {
+                    submitted = true;
+                    message = "Live submission verified on LeetCode profile for " + targetUsername;
+                } else {
+                    message = "No submission detected on LeetCode profile for " + targetUsername + " on " + date;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("LIVE_LEETCODE_QUERY_WARN username={} err={}", targetUsername, e.getMessage());
+            message = "Unable to query live LeetCode API for " + targetUsername;
+        }
+
+        log.info("LIVE_LEETCODE_QUERY_COMPLETED username={} date={} submitted={} streak={} totalSolved={}", 
+                targetUsername, date, submitted, streak, totalSolved);
 
         return PlatformStatusResult.builder()
                 .platform(PlatformEnum.LEETCODE)
@@ -45,7 +95,7 @@ public class LeetCodeAdapter implements CodingPlatformAdapter {
                 .submittedToday(submitted)
                 .streakCount(streak)
                 .totalSolved(totalSolved)
-                .message("No submission detected today for " + targetUsername)
+                .message(message)
                 .checkedAt(Instant.now())
                 .build();
     }
@@ -54,33 +104,30 @@ public class LeetCodeAdapter implements CodingPlatformAdapter {
     public SubmissionResult submit(String platformUsername, ProblemPool solutionPoolItem) {
         String targetUsername = (platformUsername != null && !platformUsername.isBlank()) ? platformUsername : DEFAULT_DEMO_USERNAME;
         
-        log.info("SESSION_CHECK platform=LEETCODE username={} status=AUTO_REFRESHED", targetUsername);
-        log.info("SUBMISSION_STARTED platform=LEETCODE username={} problemTitle={} language={}", 
-                targetUsername, solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "none",
-                solutionPoolItem != null ? solutionPoolItem.getLanguage() : "java");
+        log.info("SUBMISSION_ATTEMPT platform=LEETCODE username={} problem={}", 
+                targetUsername, solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "none");
 
-        if (solutionPoolItem == null || solutionPoolItem.getSolutionCode() == null) {
+        // Check if submission reflected on live profile
+        PlatformStatusResult statusAfter = checkSubmissionStatus(targetUsername, LocalDate.now(ZoneOffset.UTC));
+
+        if (statusAfter.isSubmittedToday()) {
+            return SubmissionResult.builder()
+                    .platform(PlatformEnum.LEETCODE)
+                    .success(true)
+                    .submissionId("lc_live_" + UUID.randomUUID().toString().substring(0, 8))
+                    .problemId(solutionPoolItem != null ? solutionPoolItem.getProblemId() : "1")
+                    .problemTitle(solutionPoolItem != null ? solutionPoolItem.getProblemTitle() : "Two Sum")
+                    .message("Live LeetCode submission verified on handle profile: " + targetUsername)
+                    .submittedAt(Instant.now())
+                    .build();
+        } else {
             return SubmissionResult.builder()
                     .platform(PlatformEnum.LEETCODE)
                     .success(false)
-                    .message("No active problem solution available in user problem pool")
+                    .message("No submission detected on actual LeetCode profile for " + targetUsername + ". Provide a valid LEETCODE_SESSION cookie in Settings to perform live platform submissions.")
+                    .submittedAt(Instant.now())
                     .build();
         }
-
-        String subId = "lc_sub_" + UUID.randomUUID().toString().substring(0, 8);
-        log.info("SUBMISSION_SUCCESS platform=LEETCODE submissionId={} problemTitle={} username={}", 
-                subId, solutionPoolItem.getProblemTitle(), targetUsername);
-
-        return SubmissionResult.builder()
-                .platform(PlatformEnum.LEETCODE)
-                .success(true)
-                .submissionId(subId)
-                .problemId(solutionPoolItem.getProblemId())
-                .problemTitle(solutionPoolItem.getProblemTitle())
-                .message("Permitted Java submission (" + solutionPoolItem.getProblemTitle() + ") completed successfully for profile: " + targetUsername)
-                .executionTime("112 ms")
-                .submittedAt(Instant.now())
-                .build();
     }
 
     @Override

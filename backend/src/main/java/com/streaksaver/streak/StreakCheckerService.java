@@ -53,38 +53,21 @@ public class StreakCheckerService {
             CodingPlatformAdapter adapter = adapterFactory.getAdapter(platform);
             String handle = userPlatformHandles.get(platform);
             
+            // Query strictly against the live profile API for target handle
             PlatformStatusResult status = adapter.checkSubmissionStatus(handle, date);
+            resultMap.put(platform, status);
 
             Optional<DailyPlatformStatus> existingOpt = dailyPlatformStatusRepository
                     .findByUserIdAndDateAndPlatform(userId, date, platform);
 
-            boolean isSubmitted = status.isSubmittedToday() || existingOpt.map(DailyPlatformStatus::isSubmitted).orElse(false);
-            int streakCount = Math.max(status.getStreakCount(), existingOpt.map(DailyPlatformStatus::getStreakCount).orElse(0));
-            if (isSubmitted && streakCount == 0) {
-                streakCount = 1;
-            }
-
-            PlatformStatusResult finalStatus = PlatformStatusResult.builder()
-                    .platform(platform)
-                    .username(status.getUsername())
-                    .date(date)
-                    .submittedToday(isSubmitted)
-                    .streakCount(streakCount)
-                    .totalSolved(status.getTotalSolved() + (isSubmitted ? 1 : 0))
-                    .message(isSubmitted ? "Submission recorded today for " + status.getUsername() : "No submission detected today for " + status.getUsername())
-                    .checkedAt(Instant.now())
-                    .build();
-
-            resultMap.put(platform, finalStatus);
-
             DailyPlatformStatus statusDoc = existingOpt.orElseGet(() -> DailyPlatformStatus.builder()
                     .userId(userId)
-                    .date(date)
+                    .date(today(date))
                     .platform(platform)
                     .build());
 
-            statusDoc.setSubmitted(isSubmitted);
-            statusDoc.setStreakCount(streakCount);
+            statusDoc.setSubmitted(status.isSubmittedToday());
+            statusDoc.setStreakCount(status.getStreakCount());
             statusDoc.setCheckedAt(Instant.now());
             dailyPlatformStatusRepository.save(statusDoc);
         }
@@ -96,5 +79,9 @@ public class StreakCheckerService {
                 resultMap.get(PlatformEnum.GEEKSFORGEEKS).isSubmittedToday());
 
         return resultMap;
+    }
+
+    private LocalDate today(LocalDate date) {
+        return date != null ? date : LocalDate.now();
     }
 }
