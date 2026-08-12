@@ -108,11 +108,17 @@ public class BrowserAutomationService {
                 log.info("CODECHEF_LOGIN_START username={}", username);
                 page.navigate("https://www.codechef.com/login");
                 page.waitForLoadState(LoadState.NETWORKIDLE);
+                Thread.sleep(2000);
 
-                // Fill login form
-                page.locator("#edit-name").fill(username);
-                page.locator("#edit-pass").fill(password);
-                page.locator("#edit-submit").click();
+                // Fill login form with flexible locators
+                Locator userField = page.locator("#edit-name, input[name='name'], input[name='username']");
+                if (userField.count() > 0) userField.first().fill(username);
+
+                Locator passField = page.locator("#edit-pass, input[name='pass'], input[name='password']");
+                if (passField.count() > 0) passField.first().fill(password);
+
+                Locator submitBtn = page.locator("#edit-submit, input[type='submit'][value*='Log'], button:has-text('Login')");
+                if (submitBtn.count() > 0) submitBtn.first().click();
 
                 page.waitForLoadState(LoadState.NETWORKIDLE);
                 Thread.sleep(3000);
@@ -202,9 +208,14 @@ public class BrowserAutomationService {
                 if (signInTab.count() > 0) signInTab.first().click();
                 Thread.sleep(1000);
 
-                page.locator("input[name='email'], input[type='email'], #luser").fill(username);
-                page.locator("input[name='password'], input[type='password'], #password").fill(password);
-                page.locator("button[type='submit']:has-text('Sign In'), button:has-text('Login')").first().click();
+                Locator userField = page.locator("#luser, input[name='user'], input[name='email']");
+                if (userField.count() > 0) userField.first().fill(username);
+
+                Locator passField = page.locator("#password, input[name='password']");
+                if (passField.count() > 0) passField.first().fill(password);
+
+                Locator loginBtn = page.locator("button[type='submit']:has-text('Sign In'), button:has-text('Login')");
+                if (loginBtn.count() > 0) loginBtn.first().click();
 
                 page.waitForLoadState(LoadState.NETWORKIDLE);
                 Thread.sleep(3000);
