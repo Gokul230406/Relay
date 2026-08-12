@@ -1,0 +1,28 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: streaksaver-backend
+  data:
+    mongodb:
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://localhost:27017/streaksaver}
+      auto-index-creation: true
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+      repositories:
+        enabled: false
+
+management:
+  health:
+    redis:
+      enabled: false
+
+jwt:
+  secret: ${JWT_SECRET:streaksaver_secret_key_protection_system_default_key_2026_super_secure}
+
+logging:
+  level:
+    root: INFO
+    com.streaksaver: INFO
