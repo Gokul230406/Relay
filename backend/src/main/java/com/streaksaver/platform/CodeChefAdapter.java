@@ -44,8 +44,7 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
 
         boolean submitted = false;
         int totalSolved = 0;
-        int streak = 0;
-        String message = "CodeChef profile checked for " + targetUsername;
+        String message = "No submission detected on CodeChef for " + targetUsername;
 
         try {
             HttpRequest req = HttpRequest.newBuilder()
@@ -56,22 +55,8 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
 
             if (resp.statusCode() == 200 && resp.body() != null) {
-                String body = resp.body();
-
-                Matcher m = Pattern.compile("Fully Solved\\s*\\((\\d+)\\)", Pattern.CASE_INSENSITIVE).matcher(body);
-                if (m.find()) {
-                    totalSolved = Integer.parseInt(m.group(1));
-                }
-
-                Matcher ratingMatcher = Pattern.compile("rating-number[^\">]*\">(\\d+)").matcher(body);
-                if (ratingMatcher.find() && totalSolved == 0) {
-                    totalSolved = Integer.parseInt(ratingMatcher.group(1));
-                }
-
-                if (totalSolved > 0) {
-                    submitted = true;
-                    message = "Verified: " + totalSolved + " problem(s) solved on CodeChef for " + targetUsername;
-                }
+                Matcher m = Pattern.compile("Fully Solved\\s*\\((\\d+)\\)").matcher(resp.body());
+                if (m.find()) totalSolved = Integer.parseInt(m.group(1));
             }
         } catch (Exception e) {
             log.warn("LIVE_CODECHEF_WARN username={} err={}", targetUsername, e.getMessage());
@@ -84,7 +69,7 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
                 .username(targetUsername)
                 .date(date)
                 .submittedToday(submitted)
-                .streakCount(Math.max(submitted ? 1 : 0, streak))
+                .streakCount(0)
                 .totalSolved(totalSolved)
                 .message(message)
                 .checkedAt(Instant.now())
@@ -106,6 +91,7 @@ public class CodeChefAdapter implements CodingPlatformAdapter {
                     .build();
         }
 
+        // Parse credentials from sessionToken: format "username:password" or just password
         String password = extractPassword(sessionToken);
         if (password == null || password.isBlank()) {
             return SubmissionResult.builder()
